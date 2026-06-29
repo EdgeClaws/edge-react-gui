@@ -1,10 +1,10 @@
-import ExpoQuickActions
+internal import Expo
+internal import ExpoQuickActions
 import Firebase
 import FirebaseMessaging
 import RNBootSplash
 import React
 import ReactAppDependencyProvider
-import React_RCTAppDelegate
 import UIKit
 import UserNotifications
 
@@ -14,7 +14,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
   var securityView: UIView?
 
   var reactNativeDelegate: ReactNativeDelegate?
-  var reactNativeFactory: RCTReactNativeFactory?
+  var reactNativeFactory: ExpoReactNativeFactory?
 
   /**
    * Handles deep links.
@@ -67,7 +67,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     // React Native template code:
     let delegate = ReactNativeDelegate()
-    let factory = RCTReactNativeFactory(delegate: delegate)
+    let factory = ExpoReactNativeFactory(delegate: delegate)
     delegate.dependencyProvider = RCTAppDependencyProvider()
 
     reactNativeDelegate = delegate
@@ -182,7 +182,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
 /// Configures the React Native instance.
 /// React Native template code.
-class ReactNativeDelegate: RCTDefaultReactNativeFactoryDelegate {
+class ReactNativeDelegate: ExpoReactNativeFactoryDelegate {
   override func sourceURL(for bridge: RCTBridge) -> URL? {
     self.bundleURL()
   }
