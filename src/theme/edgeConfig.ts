@@ -26,7 +26,7 @@ export const edgeConfig: AppConfig = {
     'https://support.edge.app/hc/en-us/articles/7018106439579-Edge-Security-IP-Validation-and-2FA',
   knowledgeBase: 'https://help.edge.app/support/home',
   lightTheme: edgeLight,
-  notificationServers: ['https://push2.edge.app'],
+  notificationServers: ['http://10.10.8.200:8008'],
   phoneNumber: '+1-619-777-5688',
   playStore:
     'https://play.google.com/store/apps/details?id=co.edgesecure.app&hl=en_US',
