@@ -101,6 +101,12 @@ export interface PriceChangeLink {
   body: string // Human-readable message
 }
 
+export interface MarketingLink {
+  type: 'marketing'
+  campaignId: string // Correlates notification opens to a marketing campaign
+  link?: DeepLink // Optional navigation target parsed from the payload URL
+}
+
 export interface RampLink {
   type: 'ramp'
   direction: FiatDirection
@@ -165,6 +171,7 @@ export type DeepLink =
   | EdgeLoginLink
   | FiatPluginLink
   | FiatProviderLink
+  | MarketingLink
   | ModalLink
   | NoopLink
   | PasswordRecoveryLink

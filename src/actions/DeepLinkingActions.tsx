@@ -284,6 +284,23 @@ async function handleLink(
       break
     }
 
+    case 'marketing': {
+      // The user opened the app from a marketing push. Report it so the
+      // campaign's open rate can be tracked. The send UI lives in the internal
+      // tools project; the campaignId rides in the push notification payload.
+      dispatch(
+        logEvent('Marketing_Notification_Opened', {
+          campaignId: link.campaignId
+        })
+      )
+      // Optional navigation: delegate to the shared handler, mirroring the
+      // affiliate link. Unsupported targets fall through its existing guards.
+      if (link.link != null) {
+        await handleLink(navigation, dispatch, state, link.link)
+      }
+      break
+    }
+
     case 'other': {
       const matchingWalletIdsAndUris: Array<{
         walletId: string
