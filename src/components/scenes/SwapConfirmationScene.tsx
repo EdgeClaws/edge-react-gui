@@ -1,5 +1,5 @@
 import { useIsFocused } from '@react-navigation/native'
-import { add, div, gt, gte, lte, sub, toFixed } from 'biggystring'
+import { add, div, gt, gte, toFixed } from 'biggystring'
 import type { EdgeSwapQuote, EdgeSwapResult } from 'edge-core-js'
 import React, { useState } from 'react'
 import { SectionList, type ViewStyle } from 'react-native'
@@ -51,10 +51,12 @@ import { cacheStyles, type Theme, useTheme } from '../services/ThemeContext'
 import { ExchangeQuote } from '../themed/ExchangeQuoteComponent'
 import { LineTextDivider } from '../themed/LineTextDivider'
 import { ModalFooter } from '../themed/ModalParts'
+import {
+  calculateQuotePriceImpact,
+  PRICE_IMPACT_WARNING_THRESHOLD
+} from '../themed/PriceImpactText'
 import { SafeSlider } from '../themed/SafeSlider'
 import { WalletListSectionHeader } from '../themed/WalletListSectionHeader'
-
-const PRICE_IMPACT_WARNING_THRESHOLD = 0.05
 
 export interface SwapConfirmationParams {
   selectedQuote: EdgeSwapQuote
@@ -126,48 +128,11 @@ export const SwapConfirmationScene: React.FC<Props> = (props: Props) => {
   const { request } = selectedQuote
   const { quoteFor } = request
 
-  const priceImpact = React.useMemo(() => {
-    const { fromWallet, fromTokenId, toTokenId } = request
-    const toWallet = request.toWallet
-    if (toWallet == null) {
-      throw new Error('Swap quote is missing a destination wallet')
-    }
-
-    const fromExchangeDenom = getExchangeDenom(
-      fromWallet.currencyConfig,
-      fromTokenId
-    )
-    const toExchangeDenom = getExchangeDenom(toWallet.currencyConfig, toTokenId)
-
-    const fromExchangeAmount = convertNativeToExchange(
-      fromExchangeDenom.multiplier
-    )(selectedQuote.fromNativeAmount)
-    const toExchangeAmount = convertNativeToExchange(
-      toExchangeDenom.multiplier
-    )(selectedQuote.toNativeAmount)
-
-    const fromFiatValue = convertCurrency(
-      exchangeRates,
-      fromWallet.currencyInfo.pluginId,
-      fromTokenId,
-      defaultIsoFiat,
-      fromExchangeAmount
-    )
-    const toFiatValue = convertCurrency(
-      exchangeRates,
-      toWallet.currencyInfo.pluginId,
-      toTokenId,
-      defaultIsoFiat,
-      toExchangeAmount
-    )
-
-    if (lte(fromFiatValue, '0')) return undefined
-
-    const impact = parseFloat(
-      div(sub(fromFiatValue, toFiatValue), fromFiatValue, 8)
-    )
-    return impact > 0 ? impact : undefined
-  }, [selectedQuote, exchangeRates, defaultIsoFiat, request])
+  const priceImpact = React.useMemo(
+    () =>
+      calculateQuotePriceImpact(selectedQuote, exchangeRates, defaultIsoFiat),
+    [selectedQuote, exchangeRates, defaultIsoFiat]
+  )
 
   const showPriceImpact =
     priceImpact != null && priceImpact >= PRICE_IMPACT_WARNING_THRESHOLD
