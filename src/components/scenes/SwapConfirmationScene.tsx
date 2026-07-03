@@ -25,6 +25,7 @@ import type { GuiSwapInfo } from '../../types/types'
 import { getSwapPluginIconUri } from '../../util/CdnUris'
 import { CryptoAmount } from '../../util/CryptoAmount'
 import { logActivity } from '../../util/logger'
+import { makeStealthSwapRequestOptions } from '../../util/stealthSwap'
 import { logEvent } from '../../util/tracking'
 import { convertNativeToExchange, DECIMAL_PRECISION } from '../../util/utils'
 import { AlertCardUi4 } from '../cards/AlertCard'
@@ -62,6 +63,13 @@ export interface SwapConfirmationParams {
   selectedQuote: EdgeSwapQuote
   quotes: EdgeSwapQuote[]
   onApprove: () => void
+
+  /**
+   * A Stealth Swap routes through the Houdini privacy provider as a fixed
+   * provider: the powered-by card is not tappable and a re-quote keeps the
+   * provider restriction.
+   */
+  stealth?: boolean
 }
 
 interface Props extends SwapTabSceneProps<'swapConfirmation'> {}
@@ -73,7 +81,7 @@ interface Section {
 
 export const SwapConfirmationScene: React.FC<Props> = (props: Props) => {
   const { route, navigation } = props
-  const { quotes, onApprove } = route.params
+  const { quotes, onApprove, stealth = false } = route.params
 
   const dispatch = useDispatch()
   const theme = useTheme()
@@ -185,7 +193,9 @@ export const SwapConfirmationScene: React.FC<Props> = (props: Props) => {
 
     navigation.replace('swapProcessing', {
       swapRequest: selectedQuote.request,
-      swapRequestOptions,
+      swapRequestOptions: stealth
+        ? makeStealthSwapRequestOptions(account, swapRequestOptions)
+        : swapRequestOptions,
       onCancel: () => {
         navigation.navigate('swapTab', { screen: 'swapCreate' })
       },
@@ -193,7 +203,8 @@ export const SwapConfirmationScene: React.FC<Props> = (props: Props) => {
         navigation.replace('swapConfirmation', {
           selectedQuote: quotes[0],
           quotes,
-          onApprove
+          onApprove,
+          stealth
         })
       }
     })
@@ -461,11 +472,20 @@ export const SwapConfirmationScene: React.FC<Props> = (props: Props) => {
           />
         </EdgeAnim>
         <EdgeAnim enter={fadeInDown60}>
-          <PoweredByCard
-            iconUri={getSwapPluginIconUri(selectedQuote.pluginId, theme)}
-            poweredByText={exchangeName}
-            onPress={handlePoweredByTap}
-          />
+          {stealth ? (
+            // A stealth swap's provider is fixed, so the card is not
+            // tappable (no chevron, no "tap to change provider"):
+            <PoweredByCard
+              iconUri={getSwapPluginIconUri(selectedQuote.pluginId, theme)}
+              poweredByText={exchangeName}
+            />
+          ) : (
+            <PoweredByCard
+              iconUri={getSwapPluginIconUri(selectedQuote.pluginId, theme)}
+              poweredByText={exchangeName}
+              onPress={handlePoweredByTap}
+            />
+          )}
         </EdgeAnim>
         {selectedQuote.isEstimate && !showPriceImpact ? (
           <EdgeAnim enter={fadeInDown90}>

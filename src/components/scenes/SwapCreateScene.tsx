@@ -25,11 +25,14 @@ import { useDispatch, useSelector } from '../../types/reactRedux'
 import type { NavigationBase, SwapTabSceneProps } from '../../types/routerTypes'
 import { getCurrencyCode } from '../../util/CurrencyInfoHelpers'
 import { getWalletName } from '../../util/CurrencyWalletHelpers'
+import { makeStealthSwapRequestOptions } from '../../util/stealthSwap'
 import { zeroString } from '../../util/utils'
+import { openBrowserUri } from '../../util/WebUtils'
 import { EdgeButton } from '../buttons/EdgeButton'
 import { KavButtons } from '../buttons/KavButtons'
 import { SceneButtons } from '../buttons/SceneButtons'
 import { AlertCardUi4 } from '../cards/AlertCard'
+import { EdgeCard } from '../cards/EdgeCard'
 import {
   EdgeAnim,
   fadeInDown30,
@@ -46,9 +49,16 @@ import {
   WalletListModal,
   type WalletListResult
 } from '../modals/WalletListModal'
-import { Airship, showToast, showWarning } from '../services/AirshipInstance'
-import { useTheme } from '../services/ThemeContext'
+import {
+  Airship,
+  showError,
+  showToast,
+  showWarning
+} from '../services/AirshipInstance'
+import { cacheStyles, type Theme, useTheme } from '../services/ThemeContext'
+import { SettingsSwitchRow } from '../settings/SettingsSwitchRow'
 import { UnscaledText } from '../text/UnscaledText'
+import { EdgeText } from '../themed/EdgeText'
 import { LineTextDivider } from '../themed/LineTextDivider'
 import {
   SwapInput,
@@ -74,6 +84,10 @@ export interface SwapErrorDisplayInfo {
   error: unknown
 }
 
+/** Placeholder pending the final marketing URL. */
+const STEALTH_LEARN_MORE_URI =
+  'https://gist.github.com/j0ntz/b3f8101f0a1f79539150fc73511bff8b'
+
 interface Props extends SwapTabSceneProps<'swapCreate'> {}
 
 export const SwapCreateScene: React.FC<Props> = props => {
@@ -86,6 +100,7 @@ export const SwapCreateScene: React.FC<Props> = props => {
     errorDisplayInfo
   } = route.params ?? {}
   const theme = useTheme()
+  const styles = getStyles(theme)
   const dispatch = useDispatch()
 
   // Input state is the state of the user input
@@ -94,6 +109,10 @@ export const SwapCreateScene: React.FC<Props> = props => {
   const [inputNativeAmountFor, setInputNativeAmountFor] = useState<
     'from' | 'to'
   >('from')
+
+  // Stealth Swap: when enabled, the quote routes through the Houdini privacy
+  // provider as a fixed provider (see SwapConfirmationScene).
+  const [stealth, setStealth] = useState(false)
 
   const fromInputRef = React.useRef<SwapInputCardInputRef>(null)
   const toInputRef = React.useRef<SwapInputCardInputRef>(null)
@@ -272,10 +291,13 @@ export const SwapCreateScene: React.FC<Props> = props => {
       errorDisplayInfo: undefined
     })
 
-    // Start request for quote:
+    // Start request for quote. A stealth swap restricts the request to the
+    // Houdini privacy provider:
     navigation.navigate('swapProcessing', {
       swapRequest,
-      swapRequestOptions,
+      swapRequestOptions: stealth
+        ? makeStealthSwapRequestOptions(account, swapRequestOptions)
+        : swapRequestOptions,
       onCancel: () => {
         navigation.goBack()
       },
@@ -283,7 +305,8 @@ export const SwapCreateScene: React.FC<Props> = props => {
         navigation.replace('swapConfirmation', {
           selectedQuote: quotes[0],
           quotes,
-          onApprove: resetState
+          onApprove: resetState,
+          stealth
         })
       }
     })
@@ -445,6 +468,16 @@ export const SwapCreateScene: React.FC<Props> = props => {
 
   const handleCancelKeyPress = useHandler(() => {
     Keyboard.dismiss()
+  })
+
+  const handleToggleStealth = useHandler(() => {
+    setStealth(value => !value)
+  })
+
+  const handleStealthLearnMore = useHandler(() => {
+    openBrowserUri(STEALTH_LEARN_MORE_URI).catch((err: unknown) => {
+      showError(err)
+    })
   })
 
   const handleFromAmountChange = useHandler((amounts: SwapInputCardAmounts) => {
@@ -613,6 +646,30 @@ export const SwapCreateScene: React.FC<Props> = props => {
               />
             )}
           </EdgeAnim>
+          {fromWallet != null && toWallet != null ? (
+            <EdgeAnim enter={fadeInDown60}>
+              <EdgeCard sections>
+                <SettingsSwitchRow
+                  label={lstrings.stealth_swap_toggle}
+                  value={stealth}
+                  onPress={handleToggleStealth}
+                />
+                {stealth ? (
+                  <View style={styles.stealthInfo}>
+                    <EdgeText style={styles.stealthInfoText} numberOfLines={4}>
+                      {lstrings.stealth_swap_info}{' '}
+                      <EdgeText
+                        style={styles.stealthLearnMoreLink}
+                        onPress={handleStealthLearnMore}
+                      >
+                        {lstrings.stealth_learn_more}
+                      </EdgeText>
+                    </EdgeText>
+                  </View>
+                ) : null}
+              </EdgeCard>
+            </EdgeAnim>
+          ) : null}
           <EdgeAnim enter={fadeInDown60}>{renderAlert()}</EdgeAnim>
           <EdgeAnim enter={fadeInDown90}>
             {isNextHidden || isKeyboardOpen ? null : (
@@ -641,4 +698,19 @@ const MaxButtonText = styled(UnscaledText)(theme => ({
   fontFamily: theme.fontFaceDefault,
   fontSize: theme.rem(0.75),
   includeFontPadding: false
+}))
+
+const getStyles = cacheStyles((theme: Theme) => ({
+  stealthInfo: {
+    paddingHorizontal: theme.rem(1),
+    paddingBottom: theme.rem(0.75)
+  },
+  stealthInfoText: {
+    color: theme.secondaryText,
+    fontSize: theme.rem(0.75)
+  },
+  stealthLearnMoreLink: {
+    color: theme.textLink,
+    fontSize: theme.rem(0.75)
+  }
 }))
