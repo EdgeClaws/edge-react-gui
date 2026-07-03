@@ -160,7 +160,7 @@ export default [
       'src/components/cards/StakingOptionCard.tsx',
       'src/components/cards/StakingReturnsCard.tsx',
       'src/components/cards/SupportCard.tsx',
-      'src/components/cards/SwapDetailsCard.tsx',
+
       'src/components/cards/TappableAccountCard.tsx',
       'src/components/cards/TappableCard.tsx',
       'src/components/cards/UnderlinedNumInputCard.tsx',
@@ -258,7 +258,7 @@ export default [
       'src/components/rows/EdgeRow.tsx',
 
       'src/components/rows/PaymentMethodRow.tsx',
-      'src/components/rows/SwapProviderRow.tsx',
+
       'src/components/rows/TxCryptoAmountRow.tsx',
 
       'src/components/scenes/ChangeMiningFeeScene.tsx',
