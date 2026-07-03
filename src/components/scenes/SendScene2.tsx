@@ -10,6 +10,7 @@ import {
   type EdgeMemoOption,
   type EdgeSpendInfo,
   type EdgeSpendTarget,
+  type EdgeSwapQuote,
   type EdgeTokenId,
   type EdgeTransaction,
   type InsufficientFundsError
@@ -59,6 +60,11 @@ import {
   FioError,
   recordSend
 } from '../../util/FioAddressUtils'
+import {
+  getHoudiniChain,
+  HOUDINI_CHAINS,
+  isValidHoudiniAddress
+} from '../../util/houdiniChains'
 import { logActivity } from '../../util/logger'
 import {
   createEdgeMemo,
@@ -67,18 +73,21 @@ import {
   getMemoLabel,
   getMemoTitle
 } from '../../util/memoUtils'
+import { makeStealthSwapRequestOptions } from '../../util/stealthSwap'
 import {
   convertTransactionFeeToDisplayFee,
   darkenHexColor,
   DECIMAL_PRECISION,
   zeroString
 } from '../../util/utils'
+import { openBrowserUri } from '../../util/WebUtils'
 import { AlertCardUi4 } from '../cards/AlertCard'
 import { EdgeCard } from '../cards/EdgeCard'
 import { ErrorCard, I18nError } from '../cards/ErrorCard'
 import type { AccentColors } from '../common/DotsBackground'
 import { EdgeAnim } from '../common/EdgeAnim'
 import { SceneWrapper } from '../common/SceneWrapper'
+import { CryptoIcon } from '../icons/CryptoIcon'
 import { ButtonsModal } from '../modals/ButtonsModal'
 import {
   FlipInputModal2,
@@ -86,6 +95,7 @@ import {
   type FlipInputModalResult
 } from '../modals/FlipInputModal2'
 import { showInsufficientFeesModal } from '../modals/InsufficientFeesModal'
+import { RadioListModal } from '../modals/RadioListModal'
 import { TextInputModal } from '../modals/TextInputModal'
 import {
   WalletListModal,
@@ -94,6 +104,7 @@ import {
 import { EdgeRow } from '../rows/EdgeRow'
 import { Airship, showError, showToast } from '../services/AirshipInstance'
 import { cacheStyles, type Theme, useTheme } from '../services/ThemeContext'
+import { SettingsSwitchRow } from '../settings/SettingsSwitchRow'
 import { UnscaledTextInput } from '../text/UnscaledTextInput'
 import { EdgeText } from '../themed/EdgeText'
 import type {
@@ -102,6 +113,10 @@ import type {
 } from '../themed/ExchangedFlipInput2'
 import { asPrivateNetworkingSetting } from '../themed/MaybePrivateNetworkingSetting'
 import { PinDots } from '../themed/PinDots'
+import {
+  calculateQuotePriceImpact,
+  PriceImpactText
+} from '../themed/PriceImpactText'
 import { SafeSlider } from '../themed/SafeSlider'
 import { SendFromFioRows } from '../themed/SendFromFioRows'
 import {
@@ -171,6 +186,10 @@ interface FioSenderInfo {
 }
 
 const ALLOW_MULTIPLE_TARGETS = true
+
+/** Placeholder pending the final marketing URL. */
+const STEALTH_LEARN_MORE_URI =
+  'https://gist.github.com/j0ntz/b3f8101f0a1f79539150fc73511bff8b'
 
 /**
  * If the prior two spend targets of a multi-out payment have the same amount
@@ -261,6 +280,32 @@ const SendComponent: React.FC<Props> = props => {
   // -1 = no max spend, otherwise equal to the index the spendTarget that requested the max spend.
   const [maxSpendSetter, setMaxSpendSetter] = useState<number>(-1)
 
+  // Send-to-address swap state (Stealth Send / cross-asset recipient). The
+  // recipient asset defaults to the source asset (undefined); picking another
+  // chain, or enabling stealth, turns the send into a swap-to-address quote.
+  const [recipientPluginId, setRecipientPluginId] = useState<
+    string | undefined
+  >(undefined)
+  const [stealth, setStealth] = useState<boolean>(false)
+  const [destinationTag, setDestinationTag] = useState<string | undefined>(
+    undefined
+  )
+  const [swapQuote, setSwapQuote] = useState<EdgeSwapQuote | undefined>(
+    undefined
+  )
+  const [fetchingSwapQuote, setFetchingSwapQuote] = useState<boolean>(false)
+  const [guaranteedSide, setGuaranteedSide] = useState<'send' | 'receive'>(
+    'send'
+  )
+  // The fixed receive amount (destination-chain native units) when the user
+  // edits "Recipient gets"; otherwise the latest quote's estimate.
+  const [receiveNativeAmount, setReceiveNativeAmount] = useState<
+    string | undefined
+  >(undefined)
+  // Bumped when the quote expires, to force a re-quote:
+  const [swapQuoteNonce, setSwapQuoteNonce] = useState<number>(0)
+  const isApprovingSwapRef = React.useRef<boolean>(false)
+
   const countryCode = useSelector(state => state.ui.countryCode)
   const account = useSelector<EdgeAccount>(state => state.core.account)
   const exchangeRates = useSelector<GuiExchangeRates>(
@@ -319,6 +364,44 @@ const SendComponent: React.FC<Props> = props => {
   const iconColor = useIconColor({ pluginId, tokenId })
 
   spendInfo.tokenId = tokenId
+
+  // ---------------------------------------------------------------------
+  // Send-to-address swap mode (Stealth Send / cross-asset recipient)
+  // ---------------------------------------------------------------------
+
+  // The send-to-address swap UI is offered only when this scene is a plain,
+  // unconstrained send. Callers that pre-lock tiles, pre-fill an address
+  // (payment protocol, deep links), pay FIO requests, or take over the
+  // broadcast/completion flow keep today's behavior untouched.
+  const swapSendAllowed =
+    lockTilesMap.address !== true &&
+    lockTilesMap.amount !== true &&
+    lockTilesMap.wallet !== true &&
+    hiddenFeaturesMap.address !== true &&
+    hiddenFeaturesMap.amount !== true &&
+    fioPendingRequest == null &&
+    onDone == null &&
+    alternateBroadcast == null &&
+    beforeTransaction == null &&
+    initSpendInfo?.spendTargets[0]?.publicAddress == null
+
+  // Where the funds land. The recipient asset defaults to the source asset;
+  // `destChain` carries Houdini's metadata (address regex, memoNeeded) for
+  // the destination chain when it is served.
+  const destPluginId = recipientPluginId ?? pluginId
+  const sameAsset = destPluginId === pluginId && tokenId == null
+  const crossAsset = recipientPluginId != null && !sameAsset
+  const swapSendActive = swapSendAllowed && (stealth || crossAsset)
+  const destChain = swapSendActive
+    ? getHoudiniChain(destPluginId, null)
+    : undefined
+  const destCurrencyConfig = account.currencyConfig[destPluginId]
+  const destCurrencyInfo = destCurrencyConfig?.currencyInfo
+  const destExchangeDenom =
+    destCurrencyConfig == null
+      ? undefined
+      : getExchangeDenom(destCurrencyConfig, null)
+  const multipleTargets = spendInfo.spendTargets.length > 1
 
   const updatePendingTxState = React.useCallback(async (): Promise<void> => {
     if (coreWallet == null || !isEvmWallet(coreWallet)) {
@@ -558,6 +641,14 @@ const SendComponent: React.FC<Props> = props => {
         (publicAddress === '' && lastAddressEntryMethod === 'scan')
       if (openCameraRef.current) openCameraRef.current = false
 
+      // A cross-chain destination address cannot be parsed by the source
+      // wallet; validate it against the destination chain's own rules:
+      const crossChainAddressValidation =
+        swapSendActive && destPluginId !== pluginId
+          ? (address: string) =>
+              destChain != null && isValidHoudiniAddress(destChain, address)
+          : undefined
+
       return (
         <AddressTile2
           title={title}
@@ -570,6 +661,7 @@ const SendComponent: React.FC<Props> = props => {
           isCameraOpen={doOpenCamera}
           recipientName={recipientName}
           recipientNameService={recipientNameService}
+          crossChainAddressValidation={crossChainAddressValidation}
           navigation={navigation as NavigationBase}
         />
       )
@@ -648,6 +740,8 @@ const SendComponent: React.FC<Props> = props => {
     index: number,
     spendTarget: EdgeSpendTarget
   ): React.ReactElement | null => {
+    // A send-to-address swap renders its own linked amount rows:
+    if (swapSendActive) return null
     const { publicAddress, nativeAmount } = spendTarget
     if (publicAddress != null && hiddenFeaturesMap.amount !== true) {
       const title =
@@ -708,6 +802,12 @@ const SendComponent: React.FC<Props> = props => {
         if (pluginId !== newPluginId || tokenId !== result.tokenId) {
           setTokenId(result.tokenId)
           setSpendInfo({ tokenId: result.tokenId, spendTargets: [{}] })
+          // A new source asset invalidates the swap-send destination state:
+          setRecipientPluginId(undefined)
+          setDestinationTag(undefined)
+          setSwapQuote(undefined)
+          setReceiveNativeAmount(undefined)
+          setGuaranteedSide('send')
         }
       })
       .catch((error: unknown) => {
@@ -735,7 +835,431 @@ const SendComponent: React.FC<Props> = props => {
     needsScrollToEnd.current = true
   })
 
+  // ---------------------------------------------------------------------
+  // Send-to-address swap handlers + rows
+  // ---------------------------------------------------------------------
+
+  const handleToggleStealth = useHandler((): void => {
+    if (multipleTargets) return
+    setStealth(value => !value)
+    setPinValue(undefined)
+  })
+
+  const handleStealthLearnMore = useHandler((): void => {
+    openBrowserUri(STEALTH_LEARN_MORE_URI).catch((err: unknown) => {
+      showError(err)
+    })
+  })
+
+  const handlePickRecipientAsset = useHandler((): void => {
+    if (multipleTargets) return
+    // The radio row's `name` is BOTH the label and the selection key, so it
+    // must be unique. Several chains share a currency code (ETH on Base /
+    // Arbitrum / Ethereum), so the label is the unique network display name
+    // with the currency code as subtext, and a map resolves it back to the
+    // destination pluginId.
+    const sourceDisplayName =
+      tokenId == null
+        ? coreWallet.currencyInfo.displayName
+        : coreWallet.currencyConfig.allTokens[tokenId]?.displayName ??
+          currencyCode
+    const displayNameToPluginId = new Map<string, string | undefined>()
+    displayNameToPluginId.set(sourceDisplayName, undefined)
+
+    const items = [
+      {
+        name: sourceDisplayName,
+        text: currencyCode,
+        icon: <CryptoIcon pluginId={pluginId} tokenId={tokenId} sizeRem={1.5} />
+      },
+      ...HOUDINI_CHAINS.filter(
+        chain =>
+          account.currencyConfig[chain.pluginId] != null &&
+          !(chain.pluginId === pluginId && tokenId == null)
+      ).map(chain => {
+        const { currencyCode: chainCode, displayName } =
+          account.currencyConfig[chain.pluginId].currencyInfo
+        displayNameToPluginId.set(displayName, chain.pluginId)
+        return {
+          name: displayName,
+          text: chainCode,
+          icon: (
+            <CryptoIcon
+              pluginId={chain.pluginId}
+              tokenId={null}
+              sizeRem={1.5}
+            />
+          )
+        }
+      })
+    ]
+    const selectedName =
+      recipientPluginId == null
+        ? sourceDisplayName
+        : account.currencyConfig[recipientPluginId]?.currencyInfo.displayName ??
+          sourceDisplayName
+
+    Airship.show<string | undefined>(bridge => (
+      <RadioListModal
+        bridge={bridge}
+        title={lstrings.stealth_recipient_receives}
+        selected={selectedName}
+        items={items}
+      />
+    ))
+      .then(selected => {
+        if (selected == null || selected === selectedName) return
+        if (!displayNameToPluginId.has(selected)) return
+        setRecipientPluginId(displayNameToPluginId.get(selected))
+        // A new destination chain invalidates the entered address and tag:
+        setDestinationTag(undefined)
+        setSwapQuote(undefined)
+        setReceiveNativeAmount(undefined)
+        setGuaranteedSide('send')
+        handleResetSendTransaction(spendInfo.spendTargets[0])()
+      })
+      .catch((error: unknown) => {
+        showError(error)
+      })
+  })
+
+  const handleEditYouSend = useHandler((): void => {
+    const startAmount = zeroString(spendInfo.spendTargets[0].nativeAmount)
+      ? ''
+      : div(
+          spendInfo.spendTargets[0].nativeAmount ?? '0',
+          cryptoDisplayDenomination.multiplier,
+          DECIMAL_PRECISION
+        )
+    Airship.show<string | undefined>(bridge => (
+      <TextInputModal
+        bridge={bridge}
+        title={lstrings.stealth_you_send}
+        inputLabel={currencyCode}
+        keyboardType="decimal-pad"
+        initialValue={startAmount}
+      />
+    ))
+      .then(amount => {
+        if (amount == null || amount === '') return
+        spendInfo.spendTargets[0].nativeAmount = mul(
+          amount,
+          cryptoDisplayDenomination.multiplier
+        )
+        setGuaranteedSide('send')
+        setSpendInfo({ ...spendInfo })
+      })
+      .catch((error: unknown) => {
+        showError(error)
+      })
+  })
+
+  const handleEditRecipientGets = useHandler((): void => {
+    if (destExchangeDenom == null) return
+    const startAmount =
+      receiveNativeAmount == null || zeroString(receiveNativeAmount)
+        ? ''
+        : div(
+            receiveNativeAmount,
+            destExchangeDenom.multiplier,
+            DECIMAL_PRECISION
+          )
+    Airship.show<string | undefined>(bridge => (
+      <TextInputModal
+        bridge={bridge}
+        title={lstrings.stealth_recipient_gets}
+        inputLabel={destCurrencyInfo?.currencyCode ?? ''}
+        keyboardType="decimal-pad"
+        initialValue={startAmount}
+      />
+    ))
+      .then(amount => {
+        if (amount == null || amount === '') return
+        setReceiveNativeAmount(mul(amount, destExchangeDenom.multiplier))
+        setGuaranteedSide('receive')
+      })
+      .catch((error: unknown) => {
+        showError(error)
+      })
+  })
+
+  const handleEditDestinationTag = useHandler((): void => {
+    Airship.show<string | undefined>(bridge => (
+      <TextInputModal
+        bridge={bridge}
+        title={lstrings.memo_destination_tag_title}
+        inputLabel={lstrings.memo_destination_tag_label}
+        initialValue={destinationTag ?? ''}
+        maxLength={64}
+      />
+    ))
+      .then(tag => {
+        if (tag == null) return
+        setDestinationTag(tag === '' ? undefined : tag.trim())
+      })
+      .catch((error: unknown) => {
+        showError(error)
+      })
+  })
+
+  const handleSwapQuoteExpired = useHandler((): void => {
+    setSwapQuoteNonce(nonce => nonce + 1)
+  })
+
+  /**
+   * One side of the linked flip inputs. The edited side is the guaranteed
+   * amount; the other tracks the live quote as an estimate.
+   */
+  const renderSwapAmountRow = (
+    title: string,
+    displayAmount: string,
+    displayCode: string,
+    isGuaranteed: boolean,
+    onPress: () => void
+  ): React.ReactElement => (
+    <EdgeRow rightButtonType="editable" title={title} onPress={onPress}>
+      <View style={styles.swapAmountRow}>
+        <EdgeText style={styles.swapAmountText}>
+          {`${isGuaranteed ? '' : '~ '}${displayAmount} ${displayCode}`}
+        </EdgeText>
+        <EdgeText
+          style={isGuaranteed ? styles.guaranteedHint : styles.estimatedHint}
+        >
+          {isGuaranteed
+            ? lstrings.stealth_guaranteed
+            : lstrings.stealth_estimated}
+        </EdgeText>
+      </View>
+    </EdgeRow>
+  )
+
+  const renderYouSendRow = (): React.ReactElement => {
+    const nativeAmount = spendInfo.spendTargets[0].nativeAmount
+    const displayAmount = zeroString(nativeAmount)
+      ? '0'
+      : div(
+          nativeAmount ?? '0',
+          cryptoDisplayDenomination.multiplier,
+          DECIMAL_PRECISION
+        )
+    return renderSwapAmountRow(
+      lstrings.stealth_you_send,
+      displayAmount,
+      currencyCode,
+      guaranteedSide === 'send',
+      handleEditYouSend
+    )
+  }
+
+  const renderRecipientGetsRow = (): React.ReactElement | null => {
+    if (destExchangeDenom == null) return null
+    const displayAmount =
+      receiveNativeAmount == null || zeroString(receiveNativeAmount)
+        ? '0'
+        : div(
+            receiveNativeAmount,
+            destExchangeDenom.multiplier,
+            DECIMAL_PRECISION
+          )
+    return renderSwapAmountRow(
+      lstrings.stealth_recipient_gets,
+      displayAmount,
+      destCurrencyInfo?.currencyCode ?? '',
+      guaranteedSide === 'receive',
+      handleEditRecipientGets
+    )
+  }
+
+  const renderRecipientReceives = (): React.ReactElement | null => {
+    if (!swapSendAllowed) return null
+    const recipientCurrencyCode =
+      recipientPluginId == null
+        ? currencyCode
+        : destCurrencyInfo?.currencyCode ?? currencyCode
+    const recipientDisplayName =
+      recipientPluginId == null
+        ? tokenId == null
+          ? coreWallet.currencyInfo.displayName
+          : coreWallet.currencyConfig.allTokens[tokenId]?.displayName ??
+            currencyCode
+        : destCurrencyInfo?.displayName ?? recipientCurrencyCode
+    return (
+      <EdgeRow
+        rightButtonType={multipleTargets ? 'none' : 'editable'}
+        title={lstrings.stealth_recipient_receives}
+        onPress={multipleTargets ? undefined : handlePickRecipientAsset}
+      >
+        <View style={styles.swapAssetRow}>
+          <CryptoIcon
+            pluginId={recipientPluginId ?? pluginId}
+            tokenId={recipientPluginId == null ? tokenId : null}
+            sizeRem={1.5}
+            marginRem={[0, 0.5, 0, 0]}
+          />
+          <EdgeText>{`${recipientDisplayName} (${recipientCurrencyCode})`}</EdgeText>
+        </View>
+      </EdgeRow>
+    )
+  }
+
+  const renderDestinationTagRow = (): React.ReactElement | null => {
+    if (destChain?.memoNeeded !== true) return null
+    return (
+      <EdgeRow
+        rightButtonType="editable"
+        title={lstrings.memo_destination_tag_title}
+        onPress={handleEditDestinationTag}
+      >
+        <EdgeText>{destinationTag ?? ''}</EdgeText>
+      </EdgeRow>
+    )
+  }
+
+  const renderSwapQuoteRow = (): React.ReactElement | null => {
+    if (spendInfo.spendTargets[0].publicAddress == null) return null
+    if (fetchingSwapQuote) {
+      return (
+        <EdgeRow title={lstrings.stealth_quote_rate}>
+          <View style={styles.calcFeeView}>
+            <EdgeText>{lstrings.stealth_getting_quote}</EdgeText>
+            <ActivityIndicator style={styles.calcFeeSpinner} />
+          </View>
+        </EdgeRow>
+      )
+    }
+    if (swapQuote == null) return null
+
+    // Rate in exchange (standard) units, plus the provider that quoted and
+    // the shared price-delta indicator:
+    const fromExchangeAmount = div(
+      swapQuote.fromNativeAmount,
+      cryptoExchangeDenomination.multiplier,
+      DECIMAL_PRECISION
+    )
+    const toExchangeAmount =
+      destExchangeDenom == null
+        ? '0'
+        : div(
+            swapQuote.toNativeAmount,
+            destExchangeDenom.multiplier,
+            DECIMAL_PRECISION
+          )
+    const rate = zeroString(fromExchangeAmount)
+      ? '0'
+      : div(toExchangeAmount, fromExchangeAmount, 8)
+    const providerName =
+      account.swapConfig[swapQuote.pluginId]?.swapInfo.displayName ??
+      swapQuote.pluginId
+    const priceImpact = calculateQuotePriceImpact(
+      swapQuote,
+      exchangeRates,
+      defaultIsoFiat
+    )
+
+    return (
+      <>
+        <EdgeRow title={lstrings.stealth_quote_rate}>
+          <View style={styles.swapAmountRow}>
+            <EdgeText style={styles.swapAmountText}>
+              {`1 ${currencyCode} = ${rate} ${
+                destCurrencyInfo?.currencyCode ?? ''
+              }`}
+              <PriceImpactText priceImpact={priceImpact} />
+            </EdgeText>
+            <EdgeText style={styles.estimatedHint}>{providerName}</EdgeText>
+          </View>
+        </EdgeRow>
+        {swapQuote.expirationDate == null ? null : (
+          <CountdownTile
+            title={lstrings.stealth_quote_expires}
+            isoExpireDate={swapQuote.expirationDate.toISOString()}
+            onDone={handleSwapQuoteExpired}
+            maximumHeight="small"
+          />
+        )}
+      </>
+    )
+  }
+
+  const renderSwapFeeRow = (): React.ReactElement | null => {
+    if (swapQuote == null) return null
+    const { networkFee } = swapQuote
+    const feeDenom = getExchangeDenom(
+      coreWallet.currencyConfig,
+      networkFee.tokenId
+    )
+    const feeDisplayAmount = div(
+      networkFee.nativeAmount,
+      feeDenom.multiplier,
+      DECIMAL_PRECISION
+    )
+    return (
+      <EdgeRow title={`${lstrings.wc_smartcontract_network_fee}:`}>
+        <EdgeText>{`${feeDisplayAmount} ${feeDenom.name}`}</EdgeText>
+      </EdgeRow>
+    )
+  }
+
+  const renderStealthToggle = (): React.ReactElement | null => {
+    if (!swapSendAllowed) return null
+    return (
+      <EdgeAnim enter={{ type: 'fadeInDown', distance: 40 }}>
+        <EdgeCard sections>
+          <SettingsSwitchRow
+            label={lstrings.stealth_send_toggle}
+            value={stealth}
+            disabled={multipleTargets}
+            onPress={handleToggleStealth}
+          />
+          {multipleTargets ? (
+            <View style={styles.stealthInfo}>
+              <EdgeText style={styles.stealthInfoText} numberOfLines={4}>
+                {lstrings.stealth_multi_recipient_unsupported}
+              </EdgeText>
+            </View>
+          ) : stealth ? (
+            <View style={styles.stealthInfo}>
+              <EdgeText style={styles.stealthInfoText} numberOfLines={4}>
+                {lstrings.stealth_send_info}{' '}
+                <EdgeText
+                  style={styles.stealthLearnMoreLink}
+                  onPress={handleStealthLearnMore}
+                >
+                  {lstrings.stealth_learn_more}
+                </EdgeText>
+              </EdgeText>
+            </View>
+          ) : null}
+        </EdgeCard>
+      </EdgeAnim>
+    )
+  }
+
+  /**
+   * With multiple recipients, show the aggregate on one row instead of making
+   * the reviewer sum the per-recipient amounts.
+   */
+  const renderMultiRecipientTotal = (): React.ReactElement | null => {
+    if (!multipleTargets) return null
+    const totalNativeAmount = spendInfo.spendTargets.reduce(
+      (prev, target) => add(target.nativeAmount ?? '0', prev),
+      '0'
+    )
+    const totalDisplayAmount = div(
+      totalNativeAmount,
+      cryptoDisplayDenomination.multiplier,
+      DECIMAL_PRECISION
+    )
+    return (
+      <EdgeRow title={lstrings.string_total_amount}>
+        <EdgeText>{`${totalDisplayAmount} ${currencyCode}`}</EdgeText>
+      </EdgeRow>
+    )
+  }
+
   const renderAddAddress = (): React.ReactElement | null => {
+    // Stealth and cross-asset sends support exactly one recipient:
+    if (swapSendActive) return null
     const { pluginId } = coreWallet.currencyInfo
     const maxSpendTargets =
       getSpecialCurrencyInfo(pluginId)?.maxSpendTargets ?? 1
@@ -804,6 +1328,7 @@ const SendComponent: React.FC<Props> = props => {
   }
 
   const renderFees = (): React.ReactElement | null => {
+    if (swapSendActive) return null
     if (
       spendInfo.spendTargets[0].publicAddress != null &&
       spendInfo.spendTargets[0].nativeAmount != null
@@ -956,6 +1481,9 @@ const SendComponent: React.FC<Props> = props => {
   }
 
   const renderMemoOptions = (): Array<React.ReactElement | null> => {
+    // A send-to-address swap's deposit memo comes from the provider, and the
+    // recipient's tag is entered on the destination-tag row instead:
+    if (swapSendActive) return [null]
     const spendTarget: EdgeSpendTarget | undefined = spendInfo.spendTargets[0]
     if (spendTarget?.publicAddress == null) return [null]
 
@@ -1276,6 +1804,32 @@ const SendComponent: React.FC<Props> = props => {
 
   const handleSliderComplete = useHandler(
     async (resetSlider: () => void): Promise<void> => {
+      // A send-to-address swap submits by approving the live quote. The
+      // slider is intentionally not reset on success, so a second slide
+      // cannot fire while the scene transitions to the success scene.
+      if (swapSendActive) {
+        if (swapQuote == null || isApprovingSwapRef.current) return
+        isApprovingSwapRef.current = true
+        isSendingRef.current = true
+        try {
+          const result = await swapQuote.approve()
+          playSendSound().catch((error: unknown) => {
+            console.log(error) // Fail quietly
+          })
+          navigation.replace('swapSuccess', {
+            edgeTransaction: result.transaction,
+            walletId: coreWallet.id
+          })
+        } catch (err: unknown) {
+          setError(err)
+          resetSlider()
+        } finally {
+          isApprovingSwapRef.current = false
+          isSendingRef.current = false
+        }
+        return
+      }
+
       if (edgeTransaction == null) return
       if (pinSpendingLimitsEnabled && spendingLimitExceeded) {
         const isAuthorized = await account.checkPin(pinValue ?? '')
@@ -1574,6 +2128,13 @@ const SendComponent: React.FC<Props> = props => {
   // Calculate the transaction
   useAsyncEffect(
     async () => {
+      // A send-to-address swap builds its transaction through the swap quote,
+      // not through makeSpend:
+      if (swapSendActive) {
+        setEdgeTransaction(null)
+        setProcessingAmountChanged(false)
+        return
+      }
       pendingInsufficientFees.current = undefined
       try {
         setProcessingAmountChanged(true)
@@ -1737,15 +2298,111 @@ const SendComponent: React.FC<Props> = props => {
       }
       setProcessingAmountChanged(false)
     },
-    [spendInfo, maxSpendSetter, walletId, pinSpendingLimitsEnabled, pinValue],
+    [
+      spendInfo,
+      maxSpendSetter,
+      walletId,
+      pinSpendingLimitsEnabled,
+      pinValue,
+      swapSendActive
+    ],
     'SendComponent'
+  )
+
+  // Fetch the send-to-address swap quote. Quotes are requested when the
+  // guaranteed-side amount commits (not per keystroke), and re-requested when
+  // the destination, stealth mode, tag, or expiry nonce changes.
+  useAsyncEffect(
+    async () => {
+      if (!swapSendActive) {
+        setSwapQuote(undefined)
+        setFetchingSwapQuote(false)
+        return
+      }
+      const toAddress = spendInfo.spendTargets[0].publicAddress
+      const sendNativeAmount = spendInfo.spendTargets[0].nativeAmount
+      const quoteNativeAmount =
+        guaranteedSide === 'send' ? sendNativeAmount : receiveNativeAmount
+      if (
+        toAddress == null ||
+        toAddress === '' ||
+        quoteNativeAmount == null ||
+        zeroString(quoteNativeAmount)
+      ) {
+        setSwapQuote(undefined)
+        return
+      }
+
+      setFetchingSwapQuote(true)
+      try {
+        const toMemos: EdgeMemo[] =
+          destinationTag == null || destinationTag === ''
+            ? []
+            : [
+                {
+                  type: destCurrencyInfo?.memoOptions?.[0]?.type ?? 'text',
+                  value: destinationTag
+                }
+              ]
+
+        // Send-to-address flows (Stealth Send and plain cross-asset
+        // send-to-any) route through the Houdini privacy provider only.
+        const quotes = await account.fetchSwapQuotes(
+          {
+            fromWallet: coreWallet,
+            fromTokenId: tokenId,
+            toTokenId: null,
+            toAddressInfo: {
+              toPluginId: destPluginId,
+              toAddress,
+              toMemos
+            },
+            nativeAmount: quoteNativeAmount,
+            quoteFor: guaranteedSide === 'send' ? 'from' : 'to'
+          },
+          makeStealthSwapRequestOptions(account)
+        )
+        const quote = quotes[0]
+
+        setSwapQuote(quote)
+        setError(undefined)
+        // Update the estimated side from the live quote:
+        if (guaranteedSide === 'send') {
+          setReceiveNativeAmount(quote.toNativeAmount)
+        } else {
+          spendInfo.spendTargets[0].nativeAmount = quote.fromNativeAmount
+          setSpendInfo({ ...spendInfo })
+        }
+        needsScrollToEnd.current = true
+      } catch (err: unknown) {
+        setSwapQuote(undefined)
+        setError(err)
+      } finally {
+        setFetchingSwapQuote(false)
+      }
+    },
+    [
+      swapSendActive,
+      spendInfo.spendTargets[0].publicAddress,
+      guaranteedSide,
+      guaranteedSide === 'send'
+        ? spendInfo.spendTargets[0].nativeAmount
+        : receiveNativeAmount,
+      destPluginId,
+      destinationTag,
+      swapQuoteNonce
+    ],
+    'SendComponent:swapQuote'
   )
 
   const showSlider = spendInfo.spendTargets[0].publicAddress != null
   let disableSlider = false
   let disabledText: string | undefined
 
-  if (
+  if (swapSendActive) {
+    // A send-to-address swap submits its live quote:
+    disableSlider = swapQuote == null || fetchingSwapQuote
+  } else if (
     edgeTransaction == null ||
     processingAmountChanged ||
     (zeroString(spendInfo.spendTargets[0].nativeAmount) &&
@@ -1833,19 +2490,33 @@ const SendComponent: React.FC<Props> = props => {
                 <EdgeCard sections>
                   {renderSelectedWallet()}
                   {renderSelectFioAddress()}
+                  {swapSendActive &&
+                  spendInfo.spendTargets[0].publicAddress != null
+                    ? renderYouSendRow()
+                    : null}
+                  {swapSendActive ? renderSwapFeeRow() : null}
                 </EdgeCard>
               </EdgeAnim>
               <EdgeAnim enter={{ type: 'fadeInUp', distance: 40 }}>
                 <EdgeCard sections>
+                  {renderRecipientReceives()}
                   {renderAddressAmountPairs()}
+                  {swapSendActive &&
+                  spendInfo.spendTargets[0].publicAddress != null
+                    ? renderRecipientGetsRow()
+                    : null}
+                  {swapSendActive ? renderDestinationTagRow() : null}
+                  {swapSendActive ? renderSwapQuoteRow() : null}
                   {renderTimeout()}
                 </EdgeCard>
               </EdgeAnim>
               <EdgeAnim enter={{ type: 'fadeInDown', distance: 40 }}>
                 <EdgeCard sections>{renderAddAddress()}</EdgeCard>
               </EdgeAnim>
+              {renderStealthToggle()}
               <EdgeAnim enter={{ type: 'fadeInDown', distance: 40 }}>
                 <EdgeCard sections>
+                  {renderMultiRecipientTotal()}
                   {renderFees()}
                   {renderMetadataNotes()}
                   {renderMemoOptions()}
@@ -1866,6 +2537,11 @@ const SendComponent: React.FC<Props> = props => {
                 <EdgeAnim enter={{ type: 'fadeInDown', distance: 120 }}>
                   <SafeSlider
                     disabledText={disabledText}
+                    confirmText={
+                      swapSendActive && stealth
+                        ? lstrings.stealth_slide_send
+                        : undefined
+                    }
                     onSlidingComplete={handleSliderComplete}
                     disabled={disableSlider}
                   />
@@ -1894,6 +2570,39 @@ const getStyles = cacheStyles((theme: Theme) => ({
   },
   calcFeeView: {
     flexDirection: 'row'
+  },
+  swapAmountRow: {
+    alignItems: 'flex-start'
+  },
+  swapAmountText: {
+    fontSize: theme.rem(1)
+  },
+  swapAssetRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    // Match the visual title-to-body gap of a text row: an icon fills its
+    // box, so it lacks the font line-box whitespace a text body carries.
+    marginTop: theme.rem(0.375)
+  },
+  guaranteedHint: {
+    fontSize: theme.rem(0.75),
+    color: theme.positiveText
+  },
+  estimatedHint: {
+    fontSize: theme.rem(0.75),
+    color: theme.secondaryText
+  },
+  stealthInfo: {
+    paddingHorizontal: theme.rem(1),
+    paddingBottom: theme.rem(0.75)
+  },
+  stealthInfoText: {
+    fontSize: theme.rem(0.75),
+    color: theme.secondaryText
+  },
+  stealthLearnMoreLink: {
+    fontSize: theme.rem(0.75),
+    color: theme.textLink
   },
   calcFeeSpinner: {
     marginLeft: theme.rem(1)

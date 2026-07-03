@@ -86,6 +86,13 @@ interface Props {
    * which carry no name-service identity.
    */
   recipientNameService?: NameService | null
+  /**
+   * Validates an entered address that belongs to a DIFFERENT chain than
+   * `coreWallet`'s (a cross-asset send-to-address destination), bypassing the
+   * wallet's own URI parsing and name-service resolution. Return false to
+   * reject the address.
+   */
+  crossChainAddressValidation?: (address: string) => boolean
   navigation: NavigationBase
 }
 
@@ -102,6 +109,7 @@ export const AddressTile2 = React.forwardRef(
       onChangeAddress,
       recipientAddress,
       resetSendTransaction,
+      crossChainAddressValidation,
       title
     } = props
 
@@ -169,6 +177,24 @@ export const AddressTile2 = React.forwardRef(
     const changeAddress = useHandler(
       async (address: string, addressEntryMethod: AddressEntryMethod) => {
         if (address == null || address.trim() === '') return
+
+        // A cross-chain destination cannot go through this wallet's URI
+        // parsing or name services; validate it against the destination
+        // chain's own rules and pass it through verbatim.
+        if (crossChainAddressValidation != null) {
+          const crossChainAddress = address.trim()
+          if (!crossChainAddressValidation(crossChainAddress)) {
+            showToast(
+              `${lstrings.scan_invalid_address_error_title} ${lstrings.scan_invalid_address_error_description}`
+            )
+            return
+          }
+          await onChangeAddress({
+            parsedUri: { publicAddress: crossChainAddress },
+            addressEntryMethod
+          })
+          return
+        }
 
         setLoading(true)
         const enteredInput = address.trim()

@@ -1609,6 +1609,24 @@ const strings = {
   // Send Scene
   send_scene_send_from_wallet: 'Send from Wallet',
   send_scene_send_to_address: 'Send to Address',
+  stealth_send_toggle: 'Stealth Send',
+  stealth_swap_toggle: 'Stealth Swap',
+  stealth_send_info:
+    'Uses a route that helps obfuscate the on-chain link between source and destination wallets.',
+  stealth_swap_info:
+    'Routes your swap through multiple exchanges so your source and destination wallets are more obfuscated on-chain.',
+  stealth_learn_more: 'Learn more',
+  stealth_you_send: 'You send',
+  stealth_recipient_gets: 'Recipient gets',
+  stealth_recipient_receives: 'Recipient receives',
+  stealth_guaranteed: 'Guaranteed',
+  stealth_estimated: 'Estimated',
+  stealth_slide_send: 'Slide to send stealthily',
+  stealth_quote_rate: 'Exchange Rate',
+  stealth_quote_expires: 'Quote Expires',
+  stealth_getting_quote: 'Getting quote...',
+  stealth_multi_recipient_unsupported:
+    'Stealth Send and cross-asset recipients are not available when sending to multiple recipients.',
   send_scene_error_title: 'Error:',
   send_scene_metadata_name_title: 'Payee',
   send_make_spend_xrp_dest_tag_length_error:
