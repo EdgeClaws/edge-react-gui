@@ -1705,6 +1705,7 @@ exports[`SendScene2 1 spendTarget 1`] = `
                 },
               ]
             }
+            testID="confirmSliderThumb"
           >
             <Text
               adjustsFontSizeToFit={true}
@@ -3714,6 +3715,7 @@ exports[`SendScene2 1 spendTarget with info tiles 1`] = `
                 },
               ]
             }
+            testID="confirmSliderThumb"
           >
             <Text
               adjustsFontSizeToFit={true}
@@ -5835,6 +5837,7 @@ exports[`SendScene2 2 spendTargets 1`] = `
                 },
               ]
             }
+            testID="confirmSliderThumb"
           >
             <Text
               adjustsFontSizeToFit={true}
@@ -7537,6 +7540,7 @@ exports[`SendScene2 2 spendTargets hide tiles 1`] = `
                 },
               ]
             }
+            testID="confirmSliderThumb"
           >
             <Text
               adjustsFontSizeToFit={true}
@@ -9219,6 +9223,7 @@ exports[`SendScene2 2 spendTargets hide tiles 2`] = `
                 },
               ]
             }
+            testID="confirmSliderThumb"
           >
             <Text
               adjustsFontSizeToFit={true}
@@ -10668,6 +10673,7 @@ exports[`SendScene2 2 spendTargets hide tiles 3`] = `
                 },
               ]
             }
+            testID="confirmSliderThumb"
           >
             <Text
               adjustsFontSizeToFit={true}
@@ -12530,6 +12536,7 @@ exports[`SendScene2 2 spendTargets lock tiles 1`] = `
                 },
               ]
             }
+            testID="confirmSliderThumb"
           >
             <Text
               adjustsFontSizeToFit={true}
@@ -14343,6 +14350,7 @@ exports[`SendScene2 2 spendTargets lock tiles 2`] = `
                 },
               ]
             }
+            testID="confirmSliderThumb"
           >
             <Text
               adjustsFontSizeToFit={true}
@@ -16083,6 +16091,7 @@ exports[`SendScene2 2 spendTargets lock tiles 3`] = `
                 },
               ]
             }
+            testID="confirmSliderThumb"
           >
             <Text
               adjustsFontSizeToFit={true}
@@ -17118,6 +17127,7 @@ exports[`SendScene2 Render SendScene 1`] = `
                         "opacity": 1,
                       }
                     }
+                    testID="addressTileEnter"
                   >
                     <Text
                       allowFontScaling={false}
@@ -17204,6 +17214,7 @@ exports[`SendScene2 Render SendScene 1`] = `
                         "opacity": 1,
                       }
                     }
+                    testID="addressTileScan"
                   >
                     <Text
                       allowFontScaling={false}
@@ -17292,6 +17303,7 @@ exports[`SendScene2 Render SendScene 1`] = `
                         "opacity": 1,
                       }
                     }
+                    testID="addressTilePaste"
                   >
                     <Text
                       allowFontScaling={false}

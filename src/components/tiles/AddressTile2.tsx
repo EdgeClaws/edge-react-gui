@@ -544,6 +544,7 @@ export const AddressTile2 = React.forwardRef(
             <EdgeTouchableOpacity
               style={styles.buttonContainer}
               onPress={handleChangeAddress}
+              testID="addressTileEnter"
             >
               <FontAwesome
                 name="edit"
@@ -558,6 +559,7 @@ export const AddressTile2 = React.forwardRef(
               <EdgeTouchableOpacity
                 style={styles.buttonContainer}
                 onPress={handleSelfTransfer}
+                testID="addressTileMyself"
               >
                 <AntDesign
                   name="wallet"
@@ -572,6 +574,7 @@ export const AddressTile2 = React.forwardRef(
             <EdgeTouchableOpacity
               style={styles.buttonContainer}
               onPress={handleScan}
+              testID="addressTileScan"
             >
               <FontAwesome5
                 name="expand"
@@ -585,6 +588,7 @@ export const AddressTile2 = React.forwardRef(
             <EdgeTouchableOpacity
               style={styles.buttonContainer}
               onPress={handlePasteFromClipboard}
+              testID="addressTilePaste"
             >
               <FontAwesome5
                 name="clipboard"
