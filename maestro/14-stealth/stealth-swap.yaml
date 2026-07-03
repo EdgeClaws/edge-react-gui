@@ -1,0 +1,52 @@
+# Stealth Swap UI walk.
+#
+# Opens the swap flow from the Bitcoin wallet and checks the Stealth Swap
+# toggle card during amount entry: the toggle, the explainer copy, and the
+# inline "Learn more" link. No quote is requested.
+#
+# Screenshots captured (under ~/.maestro/tests/<run>/ ):
+#   stealth-swap-01-start        amount entry with the Stealth Swap card
+#   stealth-swap-02-stealth-on   toggle expanded with the explainer copy
+appId: ${APP_ID}
+env:
+  APP_ID: co.edgesecure.app
+  PIN_DIGIT: '0'
+tags:
+  - stealth
+---
+- launchApp
+- runFlow:
+    when:
+      visible: 'Exit PIN'
+    commands:
+      - tapOn: { text: '${PIN_DIGIT}', waitToSettleTimeoutMs: 900 }
+      - tapOn: { text: '${PIN_DIGIT}', waitToSettleTimeoutMs: 900 }
+      - tapOn: { text: '${PIN_DIGIT}', waitToSettleTimeoutMs: 900 }
+      - tapOn: { text: '${PIN_DIGIT}', waitToSettleTimeoutMs: 1500 }
+- runFlow:
+    when:
+      visible: 'Security is Our Priority'
+    commands:
+      - tapOn: 'Cancel'
+- tapOn:
+    text: '.*Horizon.*'
+    optional: true
+
+# Open the swap flow with a from + to pair so the toggle card renders.
+- tapOn: 'Assets'
+- waitForAnimationToEnd:
+    timeout: 2000
+- tapOn: 'My Bitcoin'
+- assertVisible: 'Receive'
+- tapOn: 'Trade'
+- tapOn:
+    text: 'Swap BTC to/from another crypto'
+- waitForAnimationToEnd:
+    timeout: 3000
+- assertVisible: 'Stealth Swap'
+- takeScreenshot: stealth-swap-01-start
+
+# Stealth on: the toggle card expands with the explainer + Learn more link.
+- tapOn: 'Stealth Swap'
+- assertVisible: 'Routes your swap through multiple.*Learn more.*'
+- takeScreenshot: stealth-swap-02-stealth-on

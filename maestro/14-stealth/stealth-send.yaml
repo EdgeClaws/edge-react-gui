@@ -1,0 +1,69 @@
+# Stealth Send UI walk.
+#
+# Opens the Bitcoin wallet's Send scene and walks the send-to-address swap UI
+# without entering an address, so no live quote is requested: the "Recipient
+# receives" selector (visible before address entry), the Stealth Send toggle
+# card with its explainer copy and inline "Learn more" link, and the
+# Destination Tag row on a memo-required destination chain (XRP).
+#
+# Screenshots captured (under ~/.maestro/tests/<run>/ ):
+#   stealth-send-01-initial      plain same-asset start: add-recipient
+#                                affordance, "Recipient receives" visible
+#   stealth-send-02-stealth-on   toggle expanded with the explainer copy
+#   stealth-send-03-xrp-tag      XRP destination: Destination Tag row
+appId: ${APP_ID}
+env:
+  APP_ID: co.edgesecure.app
+  PIN_DIGIT: '0'
+tags:
+  - stealth
+---
+- launchApp
+- runFlow:
+    when:
+      visible: 'Exit PIN'
+    commands:
+      - tapOn: { text: '${PIN_DIGIT}', waitToSettleTimeoutMs: 900 }
+      - tapOn: { text: '${PIN_DIGIT}', waitToSettleTimeoutMs: 900 }
+      - tapOn: { text: '${PIN_DIGIT}', waitToSettleTimeoutMs: 900 }
+      - tapOn: { text: '${PIN_DIGIT}', waitToSettleTimeoutMs: 1500 }
+- runFlow:
+    when:
+      visible: 'Security is Our Priority'
+    commands:
+      - tapOn: 'Cancel'
+# Dismiss the unrelated Stellar/Horizon plugin error toast if present.
+- tapOn:
+    text: '.*Horizon.*'
+    optional: true
+
+# Open the Bitcoin wallet, then Send. Gate on the wallet tx-list "Receive"
+# button so Send cannot misfire on the home Send.
+- tapOn: 'Assets'
+- waitForAnimationToEnd:
+    timeout: 2000
+- tapOn: 'My Bitcoin'
+- assertVisible: 'Receive'
+- tapOn: 'Send'
+- waitForAnimationToEnd:
+    timeout: 3000
+
+# Plain same-asset start: add-recipient affordance, no amount/fee rows yet,
+# "Recipient receives" visible before address entry.
+- assertVisible: 'Stealth Send'
+- assertVisible: 'Send to Address'
+- assertVisible: 'Recipient receives'
+- takeScreenshot: stealth-send-01-initial
+
+# Stealth on: the toggle card expands with the explainer + Learn more link.
+- tapOn: 'Stealth Send'
+- assertVisible: 'Uses a route that helps obfuscate.*Learn more.*'
+- takeScreenshot: stealth-send-02-stealth-on
+- tapOn: 'Stealth Send'
+
+# Cross-asset memo chain: an XRP destination shows the Destination Tag row.
+- tapOn: 'Recipient receives'
+- tapOn:
+    text: 'XRP.*'
+- assertVisible: 'Destination Tag'
+- takeScreenshot: stealth-send-03-xrp-tag

@@ -2,6 +2,8 @@
 
 ## Unreleased (develop)
 
+- added: Stealth Send: the send scene offers a "Recipient receives" asset selector and a Stealth Send toggle, turning the send into a live swap-to-address quote (Houdini privacy routing when stealth is on, all providers for a plain cross-asset send), with linked You send/Recipient gets amounts, quote expiry countdown, and a destination tag row on memo-required chains.
+- added: Stealth Swap: a toggle on the swap amount-entry scene routes the swap through the Houdini privacy provider as a fixed, non-tappable provider.
 - added: Remote enable/disable of gift card providers via the info server's giftCardInfo config, supporting whole-provider disabling for Phaze and Bitrefill and per-brand disabling for Phaze.
 - changed: Reorganize the wallet list menu so Asset Settings is reached through Wallet Settings, and rename the Monero "Backend" card to "Server Settings".
 - fixed: Prevent imported Monero wallets from using the Edge LWS backend. Choosing to import now prompts the user to continue with a full node or configure a custom LWS server, matching the wallet settings rule.
