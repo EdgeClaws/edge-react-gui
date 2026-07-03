@@ -72,10 +72,14 @@ export const SwapDetailsCard: React.FC<Props> = props => {
       : selectDisplayDenom(state, wallet.currencyConfig, tokenId)
   )
 
-  // The wallet may have been deleted:
+  // A swap-to-address payout has no wallet, and the wallet may also have
+  // been deleted:
   const account = useSelector(state => state.core.account)
   const currencyWallets = useWatch(account, 'currencyWallets')
-  const destinationWallet = currencyWallets[swapData.payoutWalletId]
+  const destinationWallet =
+    swapData.payoutWalletId == null
+      ? undefined
+      : currencyWallets[swapData.payoutWalletId]
   const destinationWalletName =
     destinationWallet == null ? '' : getWalletName(destinationWallet)
 
@@ -180,7 +184,7 @@ export const SwapDetailsCard: React.FC<Props> = props => {
     destinationDenomination.multiplier
   )(swapData.payoutNativeAmount)
   const destinationAssetName =
-    payoutTokenId == null
+    payoutTokenId == null || destinationWallet == null
       ? payoutCurrencyCode
       : `${payoutCurrencyCode} (${
           getExchangeDenom(destinationWallet.currencyConfig, null).name
