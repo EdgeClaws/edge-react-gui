@@ -2,6 +2,7 @@
 
 ## Unreleased (develop)
 
+- added: Track when a user opens the app from a marketing push notification, reporting the campaign to analytics and navigating to an optional deep link.
 - added: Remote enable/disable of gift card providers via the info server's giftCardInfo config, supporting whole-provider disabling for Phaze and Bitrefill and per-brand disabling for Phaze.
 - changed: Reorganize the wallet list menu so Asset Settings is reached through Wallet Settings, and rename the Monero "Backend" card to "Server Settings".
 - fixed: Prevent imported Monero wallets from using the Edge LWS backend. Choosing to import now prompts the user to continue with a full node or configure a custom LWS server, matching the wallet settings rule.
