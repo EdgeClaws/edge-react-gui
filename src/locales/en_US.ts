@@ -304,6 +304,11 @@ const strings = {
   sign_message_use_default_address: 'Use default address',
   sign_message_input_label: 'Message to Sign',
   sign_message_input_placeholder: 'Paste the message from the exchange',
+  sign_message_format_label: 'Signature Format',
+  sign_message_format_standard: 'Standard (Electrum)',
+  sign_message_format_bip137: 'BIP-137',
+  sign_message_format_helper:
+    'Most verifiers accept Standard (Electrum). Choose BIP-137 if an exchange requires the strict SegWit signature format.',
   sign_message_sign_button: 'Sign Message',
   sign_message_signature_label: 'Signature',
   sign_message_safety_note:
@@ -312,6 +317,8 @@ const strings = {
     'Unable to load a wallet address to sign with.',
   sign_message_address_not_owned_error:
     'This wallet does not control that address. Enter an address that belongs to this wallet.',
+  sign_message_bip137_unsupported_address_error:
+    'BIP-137 does not support this address type. Use the Standard format, or sign with a SegWit address.',
   fragment_wallets_pubkey_copied_title: 'XPub Address Copied',
   fragment_wallets_export_transactions: 'Export Transactions',
   fragment_wallets_rename_wallet: 'Rename Wallet',
